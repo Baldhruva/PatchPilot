@@ -1,0 +1,110 @@
+name: PatchPilot DevSecOps CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Gate 1 & 2: Unit Testing and Dependency Security Audit
+  # ---------------------------------------------------------------------------
+  test-and-audit:
+    name: "Tests & Dependency Security"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Gate 1 - Run Pytest Suite
+        run: |
+          pytest -v
+
+      - name: Gate 2 - Run Dependency Security Audit (pip-audit)
+        run: |
+          pip-audit -r requirements.txt
+          pip-audit -r requirements-dev.txt
+
+  # ---------------------------------------------------------------------------
+  # Gate 3 & 4: Docker Build and Trivy Container Image Security Scan
+  # ---------------------------------------------------------------------------
+  container-security:
+    name: "Docker Build & Trivy Image Scan"
+    needs: test-and-audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Gate 3 - Build Docker Image Locally
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: patchpilot:${{ github.sha }}
+
+      - name: Gate 4 - Run Trivy Container Vulnerability Scan
+        uses: aquasecurity/trivy-action@0.29.0
+        with:
+          image-ref: patchpilot:${{ github.sha }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: false
+          severity: 'CRITICAL,HIGH'
+
+  # ---------------------------------------------------------------------------
+  # Gate 5: Publish Validated Image to GitHub Container Registry (GHCR)
+  # (Only runs when all previous gates pass on push to main)
+  # ---------------------------------------------------------------------------
+  publish-ghcr:
+    name: "Publish Validated Image to GHCR"
+    needs: [test-and-audit, container-security]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lowercase Repository Name
+        id: repo-name
+        run: |
+          echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}" >> $GITHUB_OUTPUT
+
+      - name: Build and Push Validated Image to GHCR
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.repo-name.outputs.IMAGE_NAME }}:latest
+            ${{ steps.repo-name.outputs.IMAGE_NAME }}:${{ github.sha }}

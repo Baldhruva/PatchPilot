@@ -1,0 +1,27 @@
+name: PatchPilot Kubernetes Manifest Validation
+
+on:
+  push:
+    paths:
+      - "k8s/**"
+      - ".github/workflows/deploy.yml"
+  pull_request:
+    paths:
+      - "k8s/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+jobs:
+  validate-k8s:
+    name: "Validate Kubernetes Manifests"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Dry-Run Validate Kubernetes Manifests
+        run: |
+          kubectl apply --dry-run=client -f k8s/
