@@ -1,0 +1,32 @@
+# Version control
+.git
+.gitignore
+
+# Tests and development tools
+tests/
+requirements-dev.txt
+.pytest_cache/
+
+# CI/CD and deployment configurations
+.github/
+k8s/
+scripts/
+
+# Documentation and metadata
+README.md
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Temporary logs and reports
+*.log
+trivy-results.json
+pip-audit-results.json
